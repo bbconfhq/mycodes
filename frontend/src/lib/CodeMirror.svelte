@@ -1,133 +1,120 @@
 <script lang="ts">
-  import hljs from 'highlight.js';
-  import {createEventDispatcher, onMount} from 'svelte';
+  import type { Editor, EditorConfiguration, EditorFromTextArea } from 'codemirror';
+  import { createEventDispatcher, onMount } from 'svelte';
 
   import 'codemirror/lib/codemirror.css';
+  import 'codemirror/addon/scroll/simplescrollbars.css';
   import 'codemirror-github-light/lib/codemirror-github-light-theme.css';
-  import { debounce } from '../utils/debounce';
+  import 'codemirror-github-dark/lib/codemirror-github-dark-theme.css';
 
-  import {langmode, supportedLanguages} from './language';
+  import { languageMode } from './language';
 
-
-  export let readonly = false;
-  export let tab = true;
   export let code = '';
-  export let language = 'auto';
+  // Language id from language.ts, already resolved (never 'auto')
+  export let language = 'text';
 
-  const dispatch = createEventDispatcher();
+  const dispatch = createEventDispatcher<{ submit: null }>();
 
-  const onLanguageChange = (language: string) => {
-    dispatch('languageChange', { language: language ?? '' });
-  };
+  let editor: EditorFromTextArea | null = null;
+  let textareaRef: HTMLTextAreaElement;
 
+  export const focus = () => (editor ? editor.focus() : textareaRef.focus());
 
-  let CodeMirror;
-  let editor;
-  let textareaRef;
-  let destroyed = false;
+  const themeFor = (dark: boolean) => (dark ? 'github-dark' : 'github-light');
 
   onMount(() => {
+    let destroyed = false;
+    const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const onThemeChange = (e: MediaQueryListEvent) =>
+      editor?.setOption('theme', themeFor(e.matches));
+
     (async () => {
-      CodeMirror = await import('codemirror');
-      await import('codemirror/addon/mode/simple');
-      await import('codemirror/addon/scroll/simplescrollbars.css');
-      await import('codemirror/addon/scroll/simplescrollbars');
-      await import('codemirror/mode/clike/clike');
-      await import('codemirror/mode/css/css');
-      await import('codemirror/mode/django/django');
-      await import('codemirror/mode/dockerfile/dockerfile');
-      await import('codemirror/mode/htmlmixed/htmlmixed');
-      await import('codemirror/mode/javascript/javascript');
-      await import('codemirror/mode/python/python');
-      await import('codemirror/mode/go/go');
-      await import('codemirror/mode/rust/rust');
-      await import('codemirror/mode/sass/sass');
-      await import('codemirror/mode/shell/shell');
-      await import('codemirror/mode/sql/sql');
-      await import('codemirror/mode/toml/toml');
-      await import('codemirror/mode/vue/vue');
-      await import('codemirror/mode/markdown/markdown');
-      await import('codemirror/mode/ruby/ruby');
-      await import('codemirror/mode/gfm/gfm');
-      await createEditor('gfm');
-      if (editor) editor.setValue(code || '');
+      const { default: CodeMirror } = await import('codemirror');
+      await Promise.all([
+        import('codemirror/addon/mode/simple'),
+        import('codemirror/addon/scroll/simplescrollbars'),
+        import('codemirror/addon/edit/closebrackets'),
+        import('codemirror/addon/edit/closetag'),
+        import('codemirror/addon/edit/continuelist'),
+        import('codemirror/addon/edit/matchbrackets'),
+        import('codemirror/addon/comment/comment'),
+        import('codemirror/mode/clike/clike'),
+        import('codemirror/mode/css/css'),
+        import('codemirror/mode/dockerfile/dockerfile'),
+        import('codemirror/mode/go/go'),
+        import('codemirror/mode/htmlmixed/htmlmixed'),
+        import('codemirror/mode/javascript/javascript'),
+        import('codemirror/mode/markdown/markdown'),
+        import('codemirror/mode/php/php'),
+        import('codemirror/mode/python/python'),
+        import('codemirror/mode/ruby/ruby'),
+        import('codemirror/mode/rust/rust'),
+        import('codemirror/mode/shell/shell'),
+        import('codemirror/mode/sql/sql'),
+        import('codemirror/mode/toml/toml'),
+        import('codemirror/mode/xml/xml'),
+        import('codemirror/mode/yaml/yaml')
+      ]);
+      if (destroyed) {
+        return;
+      }
+
+      const submit = () => {
+        dispatch('submit');
+      };
+      const options: EditorConfiguration & Record<string, unknown> = {
+        theme: themeFor(darkQuery.matches),
+        mode: languageMode(language),
+        lineNumbers: true,
+        indentWithTabs: true,
+        indentUnit: 4,
+        tabSize: 4,
+        scrollbarStyle: 'overlay',
+        autoCloseBrackets: true,
+        autoCloseTags: true,
+        matchBrackets: true,
+        extraKeys: {
+          Enter: 'newlineAndIndentContinueMarkdownList',
+          'Ctrl-/': 'toggleComment',
+          'Cmd-/': 'toggleComment',
+          'Ctrl-Enter': submit,
+          'Cmd-Enter': submit,
+          // Tab is captured by the editor; Esc releases focus for keyboard users.
+          Esc: (cm: Editor) => {
+            cm.getInputField().blur();
+          }
+        }
+      };
+      editor = CodeMirror.fromTextArea(textareaRef, options);
+      editor.setValue(code);
+      editor.getInputField().setAttribute('aria-label', 'Code');
+      editor.on('change', (instance) => {
+        code = instance.getValue();
+      });
+      darkQuery.addEventListener('change', onThemeChange);
     })();
+
     return () => {
-      if (editor) editor.toTextArea();
+      destroyed = true;
+      darkQuery.removeEventListener('change', onThemeChange);
+      editor?.toTextArea();
+      editor = null;
     };
   });
 
-  async function createEditor(mode) {
-    if (editor || destroyed) {
-      return;
-    }
-    const opts = {
-      theme: 'github-light',
-      lineNumbers: true,
-      indentWithTabs: true,
-      indentUnit: 2,
-      tabSize: 2,
-      value: '',
-      mode: langmode[mode] ?? mode,
-      scrollbarStyle: 'overlay',
-      readOnly: readonly,
-      autoCloseBrackets: true,
-      autoCloseTags: true,
-      extraKeys: {
-        Enter: 'newlineAndIndentContinueMarkdownList',
-        'Ctrl-/': 'toggleComment',
-        'Cmd-/': 'toggleComment'
-      },
-      foldGutter: true,
-      gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter']
-    };
-    if (!tab) {
-      opts.extraKeys['Tab'] = tab;
-      opts.extraKeys['Shift-Tab'] = tab;
-    }
-    editor = CodeMirror.fromTextArea(textareaRef, opts);
-    editor.on(
-      'change',
-      debounce((instance) => {
-        if (language !== 'auto') {
-          return;
-        }
-        const value = instance.getValue();
-        const { language: detectedLanguage} = hljs.highlightAuto(value, supportedLanguages);
-        onLanguageChange(detectedLanguage);
-        editor.setOption('mode', langmode[detectedLanguage] ?? detectedLanguage);
-      }, 500)
-    );
-    editor.on('change', (instance) => {
-      code = instance.getValue();
-    });
-    editor.refresh();
-  }
-
-  $: {
-    if (editor != null) {
-      if (language !== 'auto') {
-        editor.setOption('mode', langmode[language] ?? langmode);
-      } else {
-        const {language: detectedLanguage} = hljs.highlightAuto(code, supportedLanguages);
-        onLanguageChange(detectedLanguage);
-        editor.setOption('mode', langmode[detectedLanguage] ?? detectedLanguage);
-      }
-    }
-  }
+  $: editor?.setOption('mode', languageMode(language));
 </script>
 
-<textarea bind:this={textareaRef} readonly value={code} />
+<!-- Stand-in with the editor's height until CodeMirror loads -->
+<textarea bind:this={textareaRef} aria-label="Code" readonly value={code} />
 
 <style>
   textarea {
     display: block;
-    border: none;
     width: 100%;
-
-    color: rgba(255, 255, 255, 0.75);
-
-    appearance: none;
+    height: 100%;
+    border: none;
+    resize: none;
     background: transparent;
   }
 </style>

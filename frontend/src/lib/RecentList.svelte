@@ -1,57 +1,126 @@
-<script context="module" lang="ts">
-  export const prerender = true;
-</script>
-
 <script lang="ts">
-  import { formatDate } from '../utils/formatDate';
+  import { languageLabel } from './language';
+  import RelativeTime from './RelativeTime.svelte';
+  import type { Code } from './types';
 
-  export let items = [];
+  export let items: Code[] = [];
+  export let failed = false;
 </script>
 
-<div id="container" class="shadow glass">
-  <ul>
-    {#each items as item}
-      <li>
-        <div class="item">
-          <a href={`/${item.id}`}>{item.title}</a>
-          <time datetime={item.created_at}>{formatDate(item.created_at)}</time>
-        </div>
-      </li>
-    {/each}
-  </ul>
-</div>
+<section aria-labelledby="recent-heading">
+  <h2 id="recent-heading">Recent pastes</h2>
+  {#if failed}
+    <p class="empty">Recent pastes could not be loaded. Refresh to try again.</p>
+  {:else if items.length === 0}
+    <p class="empty">No pastes yet. Share one above and it will show up here for 7 days.</p>
+  {:else}
+    <ul class="panel">
+      {#each items as item (item.id)}
+        <li>
+          <a href={`/${item.id}`}>
+            <span class="title">{item.title}</span>
+            <span class="meta">
+              <span class="badge">{languageLabel(item.language)}</span>
+              <span class="author">{item.name}</span>
+              <RelativeTime datetime={item.created_at} />
+            </span>
+          </a>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+</section>
 
 <style lang="scss">
+  section {
+    margin-top: 2.5rem;
+  }
+
+  h2 {
+    margin-bottom: 0.625rem;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
   ul {
-    display: block;
-    max-width: 600px;
-    margin: 3rem auto;
     list-style: none;
-    border: 1px solid var(--gray2);
-    border-radius: 6px;
+    overflow: hidden;
   }
 
-  li {
-    padding: 0 1rem;
-    &:not(:last-child) {
-      border-bottom: 1px solid var(--gray2);
-    }
+  li:not(:last-child) {
+    border-bottom: 1px solid var(--border);
   }
 
-  .item {
+  a {
     display: flex;
-    height: 3rem;
-    line-height: 3rem;
-    justify-content: space-between;
-    align-content: center;
+    align-items: center;
+    gap: 1rem;
+    min-height: 3rem;
+    padding: 0.5rem 1rem;
+    color: var(--text);
+    text-decoration: none;
+    transition: background-color 0.15s;
 
-    a {
-      color: var(--blue1);
+    &:hover {
+      background: var(--surface-2);
+
+      .title {
+        color: var(--accent-text);
+      }
     }
 
-    time {
-      font-size: 14px;
-      color: var(--gray2);
+    &:focus-visible {
+      outline-offset: -2px;
+    }
+  }
+
+  .title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .meta {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.75rem;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .author {
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .empty {
+    padding: 1.25rem 1rem;
+    border: 1px dashed var(--border-strong);
+    border-radius: 10px;
+    color: var(--text-muted);
+    font-size: 14px;
+    text-align: center;
+  }
+
+  @media (max-width: 560px) {
+    a {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.25rem;
+    }
+
+    .title {
+      width: 100%;
     }
   }
 </style>
