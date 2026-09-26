@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://mycodes-server:4000',
+        target: process.env.API_URL ?? 'http://mycodes-server:4000',
         changeOrigin: true,
         secure: false
       }

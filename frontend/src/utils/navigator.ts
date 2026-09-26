@@ -1,25 +1,31 @@
-export const setHash = ({ start, end }: { start: string, end: string }) => {
-  const hash = `#L${start}-${end}`;
+export type LineRange = { start: number; end: number };
+
+export const formatLineHash = ({ start, end }: LineRange) =>
+  start === end ? `#L${start}` : `#L${start}-${end}`;
+
+// Replaces the hash without scrolling or adding a history entry. SvelteKit
+// keeps router data in history.state, so it has to be preserved.
+export const setLineHash = (range: LineRange | null) => {
+  const hash = range ? formatLineHash(range) : '';
   if (window.location.hash === hash) {
     return;
   }
-  if (history.pushState) {
-    history.replaceState(null, '', hash);
-  }
-  window.location.hash = hash;
+  const url = `${window.location.pathname}${window.location.search}${hash}`;
+  history.replaceState(history.state, '', url);
 };
 
-// parse hash. what will be this format: '#L1-34'
-export const parseLineHighlightHash = () => {
-  const { hash } = window.location;
-  const [start, end] = hash.replace('#L', '').split('-');
-  const lineStart = parseInt(start, 10);
-  const lineEnd = parseInt(end, 10);
-  if (isNaN(lineStart) || isNaN(lineEnd)) {
+// Parses '#L12' or '#L12-34' (also '#L12-L34'), clamped to the available lines.
+export const parseLineHash = (hash: string, lineCount: number): LineRange | null => {
+  const match = /^#L(\d+)(?:-L?(\d+))?$/.exec(hash);
+  if (match == null) {
     return null;
   }
-  return {
-    start: lineStart,
-    end: lineEnd,
-  };
+  const a = Number(match[1]);
+  const b = match[2] == null ? a : Number(match[2]);
+  const start = Math.max(1, Math.min(a, b));
+  const end = Math.min(lineCount, Math.max(a, b));
+  if (start > lineCount || end < 1) {
+    return null;
+  }
+  return { start, end };
 };

@@ -1,3 +1,4 @@
-import { format } from 'date-fns';
-
-export const formatDate = (date: string) => format(new Date(date), 'MM-dd HH:mm');
+export const formatDate = (date: string) =>
+  new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
+    new Date(date)
+  );
