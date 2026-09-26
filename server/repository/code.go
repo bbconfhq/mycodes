@@ -8,8 +8,9 @@ import (
 
 type CodeRepo interface {
 	Create(data *models.Code) error
-	Get(data *models.Code) (*models.Code, error)
+	Get(id string) (*models.Code, error)
 	GetRecent() (*[]models.Code, error)
+	DeleteExpired() (int64, error)
 }
 
 type codeRepoImpl struct {
@@ -36,17 +37,30 @@ func (c *codeRepoImpl) Create(data *models.Code) error {
 		ExpiredAt: data.ExpiredAt,
 	}
 	result := c.db.Create(&code)
+	if result.Error == nil {
+		data.CreatedAt = code.CreatedAt
+	}
 	return result.Error
 }
 
-func (c *codeRepoImpl) Get(data *models.Code) (*models.Code, error) {
-	result := c.db.First(&data)
-	return data, result.Error
+// Get returns an unexpired code. It returns gorm.ErrRecordNotFound when the
+// code does not exist or has expired.
+func (c *codeRepoImpl) Get(id string) (*models.Code, error) {
+	var code models.Code
+	result := c.db.
+		Where("id = ? AND expired_at >= ?", id, time.Now()).
+		First(&code)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return &code, nil
 }
 
 func (c *codeRepoImpl) GetRecent() (*[]models.Code, error) {
 	var codes *[]models.Code
+	// Everything but content, which the list does not show
 	result := c.db.
+		Select("id", "ip", "name", "title", "language", "created_at", "expired_at").
 		Limit(5).
 		Where("expired_at >= ?", time.Now()).
 		Order("created_at desc").
@@ -55,4 +69,9 @@ func (c *codeRepoImpl) GetRecent() (*[]models.Code, error) {
 		return nil, result.Error
 	}
 	return codes, nil
+}
+
+func (c *codeRepoImpl) DeleteExpired() (int64, error) {
+	result := c.db.Where("expired_at < ?", time.Now()).Delete(&models.Code{})
+	return result.RowsAffected, result.Error
 }

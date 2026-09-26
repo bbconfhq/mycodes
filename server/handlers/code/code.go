@@ -1,8 +1,10 @@
 package code
 
 import (
+	"errors"
 	"log"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/bbconfhq/mycodes/models"
@@ -10,6 +12,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	gonanoid "github.com/matoous/go-nanoid/v2"
+	"gorm.io/gorm"
 )
 
 type Response struct {
@@ -18,7 +21,7 @@ type Response struct {
 }
 
 var (
-	Validator *validator.Validate
+	Validator = validator.New()
 )
 
 func GetList(c *fiber.Ctx) error {
@@ -40,9 +43,11 @@ func GetList(c *fiber.Ctx) error {
 func GetOne(c *fiber.Ctx) error {
 	status, errs := fiber.StatusOK, 0
 
-	code := &models.Code{ID: c.Params("uid")}
-	result, err := repository.Code.Get(code)
-	if err != nil {
+	result, err := repository.Code.Get(c.Params("uid"))
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		status, errs = fiber.StatusNotFound, 1
+		result = nil
+	} else if err != nil {
 		status, errs = fiber.StatusInternalServerError, 1
 		result = nil
 		log.Printf("GetOne error: %v", err)
@@ -65,10 +70,6 @@ func Post(c *fiber.Ctx) error {
 		})
 	}
 
-	if Validator == nil {
-		Validator = validator.New()
-	}
-
 	if err := Validator.Struct(result); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(Response{
 			Data:  nil,
@@ -78,18 +79,27 @@ func Post(c *fiber.Ctx) error {
 
 	nid, err := gonanoid.New(10)
 	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(Response{
+		return c.Status(fiber.StatusInternalServerError).JSON(Response{
 			Data:  nil,
 			Error: 3,
 		})
 	}
 
-	ips := c.IPs()
-	if len(ips) == 0 {
-		ips = append(ips, c.IP())
+	// The leftmost X-Forwarded-For entries are supplied by the client and can
+	// be spoofed, so use the address appended by the nearest proxy
+	rawIp := c.IP()
+	if ips := c.IPs(); len(ips) > 0 {
+		rawIp = strings.TrimSpace(ips[len(ips)-1])
 	}
-	ip := net.ParseIP(ips[0])
-	maskedIp := ip.Mask(net.IPv4Mask(0xFF, 0xFF, 0, 0)).String()
+	// Keep the /16 of an IPv4 address or the /48 of an IPv6 address
+	maskedIp := "0.0.0.0"
+	if ip := net.ParseIP(rawIp); ip != nil {
+		if v4 := ip.To4(); v4 != nil {
+			maskedIp = v4.Mask(net.CIDRMask(16, 32)).String()
+		} else {
+			maskedIp = ip.Mask(net.CIDRMask(48, 128)).String()
+		}
+	}
 
 	result = &models.Code{
 		ID:        nid,
@@ -105,6 +115,7 @@ func Post(c *fiber.Ctx) error {
 	if err != nil {
 		status, errs = fiber.StatusInternalServerError, 4
 		result = nil
+		log.Printf("Post error: %v", err)
 	}
 
 	return c.Status(status).JSON(Response{

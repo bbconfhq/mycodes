@@ -7,6 +7,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
 	"os"
+	"time"
 
 	"flag"
 	"log"
@@ -40,6 +41,21 @@ func main() {
 	db := database.Connect(dsn)
 	repository.Initialize(db)
 
+	// Delete expired codes hourly; only one process should do it when prefork is enabled
+	if !fiber.IsChild() {
+		go func() {
+			for {
+				deleted, err := repository.Code.DeleteExpired()
+				if err != nil {
+					log.Printf("cleanup error: %v", err)
+				} else if deleted > 0 {
+					log.Printf("cleanup: deleted %d expired codes", deleted)
+				}
+				time.Sleep(time.Hour)
+			}
+		}()
+	}
+
 	// Create fiber app
 	app := fiber.New(fiber.Config{
 		Prefork: *prod, // go run app.go -prod
@@ -51,6 +67,5 @@ func main() {
 
 	handlers.Initialize(app)
 
-	// Listen on port 3000
 	log.Fatal(app.Listen(*port))
 }
